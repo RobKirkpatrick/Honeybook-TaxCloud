@@ -122,3 +122,52 @@ test('vendor email on your own domain does not make client rows internal', () =>
   const r = H.convert(recs, Object.assign({}, base, { internalDomain: 'mine.com' })).rows[0];
   assert.strictEqual(r.customerId, 'AnnLee');
 });
+
+test('readPayments accepts HoneyBook headers as exported, in any style', () => {
+  const upper = H.readPayments('PROJECT_NAME,INVOICE,TRANSACTION_DATE,NON_TAXABLE_AMOUNT,TAXABLE_AMOUNT_1\nA,#1-001,"Jul 01, 2026",1,2\n');
+  assert.deepStrictEqual(upper.missing, []);
+  const title = H.readPayments('Project Name,Invoice,Transaction Date,Non-Taxable Amount,Taxable Amount 1,Client Info\nA,#1-001,"Jul 01, 2026",1,2,Ann Lee\n');
+  assert.deepStrictEqual(title.missing, []);
+  assert.strictEqual(title.records[0].CLIENT_INFO, 'Ann Lee');
+  const bad = H.readPayments('Project Name,Client Info,Project Date\nA,B,C\n');
+  assert.ok(bad.missing.includes('INVOICE'));
+});
+
+test('readVenues accepts friendly headers and matches by project name', () => {
+  const v = H.readVenues('Project Name,Street Address,City,State,Zip Code\n"Ann  Lee 08/01/26 Wedding",9 Barn Rd,Aspen,co,81611\n');
+  assert.deepStrictEqual(v.missing, []);
+  const recs = csv(['Co,Ann Lee 08/01/26 Wedding,"Aug 01, 2026",v,Ann Lee (a@x.com),#1-001,Paid,x,"Jul 01, 2026",0,100,0,0%,100']);
+  const r = H.convert(recs, base, v.records).rows[0];
+  assert.strictEqual(r.missingVenue, false);
+  assert.strictEqual(r.venue.state, 'CO');
+  assert.ok(H.readVenues('Name,Notes\nA,b\n').missing.includes('street address'));
+});
+
+test('venue needs street, city, state and zip; default state fills the gap', () => {
+  const recs = csv(['Co,A,"Aug 01, 2026",v,A One (a@x.com),#1-001,Paid,x,"Jul 01, 2026",0,100,0,0%,100']);
+  const venues = H.readVenues('Project Name,Address,City,Zip\nA,1 Rd,Aspen,81611\n').records;
+  assert.strictEqual(H.convert(recs, base, venues).rows[0].missingVenue, true);
+  const ok = H.convert(recs, Object.assign({}, base, { defaultShipToState: 'CO' }), venues).rows[0];
+  assert.strictEqual(ok.missingVenue, false);
+  assert.strictEqual(ok.venue.state, 'CO');
+});
+
+test('per-payment mode keeps one row per payment with unique order IDs', () => {
+  const recs = csv([
+    'Co,W,"Aug 01, 2026",v,Ann Lee (a@x.com),#74-003,Paid,x,"Jul 01, 2026",0,100,8,8%,108',
+    'Co,W,"Aug 01, 2026",v,Ann Lee (a@x.com),#74-003,Partial Refund,x,"Jul 09, 2026",-5,-20,-2,8%,-27',
+    'Co,W,"Aug 01, 2026",v,Pat Planner (p@x.com),#74-004,Paid,x,"Jul 20, 2026",0,50,4,8%,54'
+  ]);
+  const rows = H.convert(recs, Object.assign({}, base, { rowMode: 'PER_PAYMENT' })).rows;
+  assert.strictEqual(rows.length, 3);
+  assert.deepStrictEqual(rows.map(r => r.orderId), ['74-003', '74-003-2', '74-004']);
+  assert.deepStrictEqual(rows.map(r => r.qty), [1, -1, 1]); // refund line: qty -1, positive price
+  assert.deepStrictEqual(rows.map(r => H.centsToStr(r.priceCents)), ['100.00', '25.00', '50.00']);
+  assert.strictEqual(new Set(rows.map(r => r.customerId)).size, 1); // one ID per project
+  assert.deepStrictEqual(rows.map(r => r.date), ['20260701', '20260709', '20260720']);
+});
+
+test('customer ID is just the client name joined, with no setup', () => {
+  const recs = csv(['Co,P,"Aug 01, 2026",v,"Mary-Ann O\'Neil (m@x.com)",#1-001,Paid,x,"Jul 01, 2026",0,100,0,0%,100']);
+  assert.strictEqual(H.convert(recs, base).rows[0].customerId, 'MaryAnnONeil');
+});

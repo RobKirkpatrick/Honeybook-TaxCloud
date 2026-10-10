@@ -29,6 +29,8 @@
       tic: '94001',
       itemName: 'Wedding Floral & Decor',
       mode: 'PAYMENT_DATE', // or EVENT_DATE
+      rowMode: 'MERGED', // or PER_PAYMENT
+      defaultShipToState: '', // used when a venue has no state
       quarterStart: '', // ISO yyyy-mm-dd, blank = no lower bound
       quarterEnd: '',
       internalDomain: '', // e.g. "yourbusiness.com": payments from your own address use the project name
@@ -82,6 +84,63 @@
     var lines = [headers.map(csvEscape).join(',')];
     rows.forEach(function (r) { lines.push(r.map(csvEscape).join(',')); });
     return lines.join('\r\n') + '\r\n';
+  }
+
+  // ---- Tolerant readers ----------------------------------------------------
+  // HoneyBook exports use UPPER_SNAKE headers in the Payments report but "Title Case"
+  // in Project reports. Accept either so users never have to edit headers.
+
+  var PAYMENT_ALIASES = {
+    PROJECT: 'PROJECT_NAME', CLIENT: 'CLIENT_INFO', CLIENT_NAME: 'CLIENT_INFO',
+    INVOICE_NUMBER: 'INVOICE', INVOICE_NO: 'INVOICE', COMPANY: 'COMPANY_NAME',
+    TAXABLE_AMOUNT: 'TAXABLE_AMOUNT_1', TAX: 'TAX_1', TAX_RATE: 'TAX_RATE_1',
+    PAYMENT_DATE: 'TRANSACTION_DATE', DATE_PAID: 'TRANSACTION_DATE', EVENT_DATE: 'PROJECT_DATE'
+  };
+  var PAYMENT_REQUIRED = ['PROJECT_NAME', 'INVOICE', 'TRANSACTION_DATE', 'NON_TAXABLE_AMOUNT', 'TAXABLE_AMOUNT_1'];
+
+  function canonPaymentHeader(h) {
+    var k = (h || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    return PAYMENT_ALIASES[k] || k;
+  }
+
+  function readPayments(text) {
+    var p = csvToObjects(text);
+    var map = p.headers.map(canonPaymentHeader);
+    var records = p.records.map(function (rec) {
+      var o = {};
+      p.headers.forEach(function (h, i) { if (map[i] && o[map[i]] === undefined) o[map[i]] = rec[h]; });
+      return o;
+    });
+    var missing = PAYMENT_REQUIRED.filter(function (c) { return map.indexOf(c) === -1; });
+    return { records: records, headers: p.headers, missing: missing };
+  }
+
+  var VENUE_ALIASES = {
+    ProjectName: ['projectname', 'project', 'name', 'event', 'wedding', 'projecttitle'],
+    CustomerID: ['customerid', 'customer'],
+    ShipToAddr1: ['shiptoaddr1', 'addr1', 'address', 'address1', 'street', 'streetaddress', 'venueaddress', 'shiptoaddress', 'shiptostreet'],
+    ShipToAddr2: ['shiptoaddr2', 'addr2', 'address2', 'suite', 'unit'],
+    ShipToCity: ['shiptocity', 'city', 'venuecity'],
+    ShipToState: ['shiptostate', 'state', 'venuestate'],
+    ShipToZip5: ['shiptozip5', 'shiptozip', 'zip', 'zipcode', 'zip5', 'postalcode', 'postcode']
+  };
+
+  function readVenues(text) {
+    var p = csvToObjects(text);
+    var lookup = {};
+    Object.keys(VENUE_ALIASES).forEach(function (k) {
+      VENUE_ALIASES[k].forEach(function (a) { lookup[a] = k; });
+    });
+    var map = p.headers.map(function (h) { return lookup[(h || '').toLowerCase().replace(/[^a-z0-9]/g, '')] || ''; });
+    var records = p.records.map(function (rec) {
+      var o = {};
+      p.headers.forEach(function (h, i) { if (map[i] && o[map[i]] === undefined) o[map[i]] = rec[h]; });
+      return o;
+    });
+    var missing = [];
+    if (map.indexOf('ShipToAddr1') === -1) missing.push('street address');
+    if (map.indexOf('ProjectName') === -1 && map.indexOf('CustomerID') === -1) missing.push('project name');
+    return { records: records, headers: p.headers, missing: missing };
   }
 
   // ---- Values --------------------------------------------------------------
@@ -165,19 +224,26 @@
     (venueRecords || []).forEach(function (v) {
       var addr = {
         addr1: (v.ShipToAddr1 || '').trim(), addr2: (v.ShipToAddr2 || '').trim(),
-        city: (v.ShipToCity || '').trim(), state: (v.ShipToState || '').trim(),
+        city: (v.ShipToCity || '').trim(), state: (v.ShipToState || '').trim().toUpperCase(),
         zip5: (v.ShipToZip5 || '').trim().slice(0, 5)
       };
-      if (!addr.addr1) return;
-      if (v.ProjectName && v.ProjectName.trim()) byProject[v.ProjectName.trim().toLowerCase()] = addr;
+      if (!addr.addr1 && !addr.city && !addr.zip5) return;
+      if (v.ProjectName && v.ProjectName.trim()) byProject[normName(v.ProjectName)] = addr;
       if (v.CustomerID && v.CustomerID.trim()) byCustomer[v.CustomerID.trim().toLowerCase()] = addr;
     });
     return { byProject: byProject, byCustomer: byCustomer };
   }
 
+  function normName(s) { return (s || '').trim().replace(/\s+/g, ' ').toLowerCase(); }
+
   function lookupVenue(index, projectName, customerId) {
-    return index.byProject[(projectName || '').trim().toLowerCase()] ||
+    return index.byProject[normName(projectName)] ||
       index.byCustomer[(customerId || '').toLowerCase()] || null;
+  }
+
+  // TaxCloud rejects a row unless street, city, state and 5-digit ZIP are all present.
+  function venueComplete(v) {
+    return !!(v && v.addr1 && v.city && v.state && /^\d{5}$/.test(v.zip5));
   }
 
   // ---- Conversion ----------------------------------------------------------
@@ -199,62 +265,93 @@
   }
 
   /*
-   * records: HoneyBook rows as objects. settings: see defaultSettings().
-   * venueRecords: optional venue-list rows. overrides: { projectName: {addr1,...} } typed in-page.
-   * Returns { rows, skipped, companies, warnings }.
+   * records: HoneyBook rows (canonical headers, see readPayments). settings: see defaultSettings().
+   * venueRecords: optional venue-list rows. manualVenues: { projectName: {addr1,...} } typed in-page.
+   * settings.rowMode: 'MERGED' (one row per project) or 'PER_PAYMENT' (one row per HoneyBook payment).
+   * Returns { rows, skipped }.
    */
   function convert(records, settings, venueRecords, manualVenues) {
     var s = Object.assign(defaultSettings(), settings || {});
     var venues = buildVenueIndex(venueRecords);
     manualVenues = manualVenues || {};
     var skipped = { noInvoice: 0, outOfRange: 0, otherCompany: 0 };
-    var groups = {}, order = [];
+    var perPayment = s.rowMode === 'PER_PAYMENT';
 
+    var usable = [];
     records.forEach(function (rec) {
       if (!(rec.INVOICE || '').trim()) { skipped.noInvoice++; return; } // HoneyBook totals row
+      usable.push(rec);
+    });
+
+    function projectKey(rec) { return (rec.PROJECT_NAME || '').trim() || ('invoice:' + baseInvoice(rec.INVOICE)); }
+
+    // One CustomerID per project, taken from everyone who paid on it (not just this period),
+    // so the ID stays the same quarter to quarter and in both row modes.
+    var idCounts = {};
+    usable.forEach(function (rec) {
+      var k = projectKey(rec), c = idCounts[k] || (idCounts[k] = {}), id = deriveCustomerId(rec, s);
+      c[id] = (c[id] || 0) + 1;
+    });
+
+    var items = [];
+    usable.forEach(function (rec) {
       if (s.company && (rec.COMPANY_NAME || '') !== s.company) { skipped.otherCompany++; return; }
-      var txDate = parseDate(rec.TRANSACTION_DATE);
-      var projDate = parseDate(rec.PROJECT_DATE);
-      var filterDate = s.mode === 'EVENT_DATE' ? projDate : txDate;
-      if ((s.quarterStart || s.quarterEnd) && !inQuarter(filterDate, s)) { skipped.outOfRange++; return; }
-
-      var key = (rec.PROJECT_NAME || '').trim() || ('invoice:' + baseInvoice(rec.INVOICE));
-      var g = groups[key];
-      if (!g) { g = groups[key] = { projectName: key, ids: {}, cents: 0, taxCents: 0, dates: [], invoices: [], firstRate: '' }; order.push(key); }
-      var cid = deriveCustomerId(rec, s);
-      g.ids[cid] = (g.ids[cid] || 0) + 1;
-      g.cents += signedPreTaxCents(rec);
-      g.taxCents += toCents(rec.TAX_1);
-      var d = s.mode === 'EVENT_DATE' ? projDate : txDate;
-      if (d) g.dates.push(d);
-      var inv = baseInvoice(rec.INVOICE);
-      if (inv) g.invoices.push(inv);
-      if (!g.firstRate) g.firstRate = (rec.TAX_RATE_1 || '').trim();
+      var txDate = parseDate(rec.TRANSACTION_DATE), projDate = parseDate(rec.PROJECT_DATE);
+      var reportDate = s.mode === 'EVENT_DATE' ? projDate : txDate;
+      if ((s.quarterStart || s.quarterEnd) && !inQuarter(reportDate, s)) { skipped.outOfRange++; return; }
+      items.push({
+        key: projectKey(rec), cents: signedPreTaxCents(rec), taxCents: toCents(rec.TAX_1),
+        date: reportDate, invoice: (rec.INVOICE || '').trim().replace(/^#/, ''),
+        rate: (rec.TAX_RATE_1 || '').trim()
+      });
     });
 
-    var rows = order.map(function (key) {
-      var g = groups[key];
-      var customerId = pickCustomerId(g.ids);
-      var date = g.dates.slice().sort().pop() || '';
-      var venue = manualVenues[key] || lookupVenue(venues, key, customerId);
+    function finish(key, o) {
+      var venue = manualVenues[key] || lookupVenue(venues, key, o.customerId);
+      if (venue && !venue.state && s.defaultShipToState) venue = Object.assign({}, venue, { state: s.defaultShipToState });
       return {
-        projectName: key,
-        orderId: g.invoices.slice().sort()[0] || '',
-        customerId: customerId,
-        date: date.replace(/-/g, ''),
-        priceCents: Math.abs(g.cents),
-        qty: g.cents < 0 ? -1 : 1,
-        taxCents: g.taxCents,
-        taxRate: g.firstRate,
-        venue: venue,
-        missingVenue: !venue
+        projectName: key, orderId: o.orderId, customerId: o.customerId,
+        date: o.date.replace(/-/g, ''), priceCents: Math.abs(o.cents), qty: o.cents < 0 ? -1 : 1,
+        taxCents: o.taxCents, taxRate: o.rate,
+        venue: venue, missingVenue: !venueComplete(venue)
       };
-    });
+    }
+
+    var rows = [];
+    if (perPayment) {
+      var seen = {};
+      items.forEach(function (it) {
+        // OrderID must be unique per row; a refund can share its invoice with the original payment.
+        var id = it.invoice, n = (seen[id] = (seen[id] || 0) + 1);
+        rows.push(finish(it.key, {
+          orderId: n > 1 ? id + '-' + n : id, customerId: pickCustomerId(idCounts[it.key]),
+          date: it.date, cents: it.cents, taxCents: it.taxCents, rate: it.rate
+        }));
+      });
+    } else {
+      var groups = {}, order = [];
+      items.forEach(function (it) {
+        var g = groups[it.key];
+        if (!g) { g = groups[it.key] = { cents: 0, taxCents: 0, dates: [], invoices: [], rate: '' }; order.push(it.key); }
+        g.cents += it.cents; g.taxCents += it.taxCents;
+        if (it.date) g.dates.push(it.date);
+        var b = baseInvoice(it.invoice); if (b) g.invoices.push(b);
+        if (!g.rate) g.rate = it.rate;
+      });
+      order.forEach(function (key) {
+        var g = groups[key];
+        rows.push(finish(key, {
+          orderId: g.invoices.slice().sort()[0] || '', customerId: pickCustomerId(idCounts[key]),
+          date: g.dates.slice().sort().pop() || '', cents: g.cents, taxCents: g.taxCents, rate: g.rate
+        }));
+      });
+    }
 
     rows.sort(function (a, b) {
       var x = a.customerId.toLowerCase(), y = b.customerId.toLowerCase();
       if (x !== y) return x < y ? -1 : 1;
-      return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
+      if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+      return a.orderId < b.orderId ? -1 : a.orderId > b.orderId ? 1 : 0;
     });
 
     return { rows: rows, skipped: skipped };
@@ -315,7 +412,11 @@
 
   function venuesToCSV(rows) {
     var headers = ['CustomerID', 'ProjectName', 'ShipToAddr1', 'ShipToAddr2', 'ShipToCity', 'ShipToState', 'ShipToZip5'];
-    var out = rows.filter(function (r) { return r.venue; }).map(function (r) {
+    var seen = {};
+    var out = rows.filter(function (r) {
+      if (!r.venue || seen[r.projectName]) return false;
+      return (seen[r.projectName] = true);
+    }).map(function (r) {
       return [r.customerId, r.projectName, r.venue.addr1, r.venue.addr2, r.venue.city, r.venue.state, r.venue.zip5];
     });
     return toCSV(headers, out);
@@ -328,6 +429,9 @@
     defaultSettings: defaultSettings,
     parseCSV: parseCSV,
     csvToObjects: csvToObjects,
+    readPayments: readPayments,
+    readVenues: readVenues,
+    venueComplete: venueComplete,
     toCSV: toCSV,
     parseDate: parseDate,
     toCents: toCents,

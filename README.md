@@ -8,35 +8,46 @@ Your data never leaves your computer. There is no server and nothing is uploaded
 
 ## How to use it
 
-1. **Export from HoneyBook:** Reports → Payments → pick your date range → export CSV.
+1. **Export from HoneyBook:** Reports → Payments → pick your date range → export CSV. **Don't edit the file or its headers.** The converter reads HoneyBook's export exactly as it comes.
 2. **Open the converter** and fill in *Your business* (name and ship-from address). It's remembered in your browser, and it's yours to set: nothing is pre-filled.
-3. **Drop in the CSV.** Choose whether you report by payment date or event date, and set the period.
-4. **Add venue addresses.** HoneyBook doesn't include where the event was held, but TaxCloud needs it. Fill in any highlighted rows, or load a saved venue list. Use *Save venue list* so next quarter is mostly automatic.
+3. **Drop in the CSV.** Choose whether you report by payment date or event date, set the period, and choose one row per project or per payment (see below).
+4. **Give every row a ship-to address.** HoneyBook doesn't say where the event was held, but TaxCloud rejects any row without a full ship-to address: **street, city, state and 5-digit ZIP, all four**. Rows missing any part are highlighted yellow. Type them in, or load a saved venue list. If all your events are in one state, set *State to use when a venue has none*. Use *Save venue list* so next quarter is mostly automatic.
 5. **Download** the TaxCloud file and import it in TaxCloud.
+
+## One row per project or per payment?
+
+HoneyBook gives one line per payment. You choose how that becomes TaxCloud orders:
+
+| | **Project (default)** | **Payment** |
+|---|---|---|
+| Rows | One per wedding/event | One per HoneyBook payment |
+| Amount | All payments added together | That payment's pre-tax amount |
+| Date | Latest payment (or event date) | The payment's own date |
+| OrderID | Lowest invoice number | The full invoice number (e.g. `000101-003`) |
+| Refunds | Netted into the total | Their own line, quantity -1 |
+| Best for | Fewer rows to review and fix venues for | Matching HoneyBook line-by-line |
+
+Both give the same total. In *Project* mode a project with only refunds in the period comes out as quantity -1.
 
 ## What it does
 
 - Skips HoneyBook's totals row.
-- Combines all payments for a project into one row (one order per wedding or event).
-- Sums pre-tax amounts (non-taxable + taxable), keeps the latest date, uses the lowest invoice number as OrderID.
-- Handles refunds (negative net becomes quantity -1 with a positive price).
+- Sums pre-tax amounts (non-taxable + taxable).
 - Leaves tax amount/rate as `0` because TaxCloud calculates tax itself.
 - Splits into files of 1,000 rows (TaxCloud's per-upload limit).
 - Produces a *review copy* with three extra columns (project, HoneyBook tax collected, rate) so you can compare. **Don't upload the review copy.**
 
 ## Customer IDs
 
-The CustomerID comes from the client's name with spaces and punctuation removed (`Rachel Chiglo` → `RachelChiglo`). Under *Advanced* you can:
-
-- map a payer (planner, parent) to the actual couple,
-- rename an ID,
-- set your email domain so invoices created under your own email use the project name.
+There's nothing to set up. HoneyBook has no customer ID, so the converter makes one from the client's name with spaces and punctuation removed (`Rachel Chiglo` → `RachelChiglo`). TaxCloud only needs it to be consistent, and each project always gets the same one.
 
 ## Venue list format
 
-CSV with these columns (`CustomerID` or `ProjectName` is used to match; `ProjectName` wins):
+A CSV with one row per project. Headers can be named loosely (`Project Name`, `Address`/`Street`, `City`, `State`, `Zip`); the exact TaxCloud names also work. Match is on the **project name exactly as HoneyBook shows it**:
 
-`CustomerID,ProjectName,ShipToAddr1,ShipToAddr2,ShipToCity,ShipToState,ShipToZip5`
+`ProjectName,ShipToAddr1,ShipToAddr2,ShipToCity,ShipToState,ShipToZip5`
+
+The *Save venue list* button writes this file for you.
 
 See [examples/](examples/) for a sample HoneyBook file, venue list and settings (all fictional).
 

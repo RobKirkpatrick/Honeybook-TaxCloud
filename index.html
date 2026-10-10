@@ -76,10 +76,15 @@
           <option value="PAYMENT_DATE">Date payment was received</option>
           <option value="EVENT_DATE">Event / delivery date</option>
         </select></div>
+      <div><label for="rowMode">One row per</label>
+        <select id="rowMode">
+          <option value="MERGED">Project (payments combined)</option>
+          <option value="PER_PAYMENT">Payment (as in HoneyBook)</option>
+        </select></div>
       <div><label for="qStart">Period start</label><input type="date" id="qStart"></div>
       <div><label for="qEnd">Period end</label><input type="date" id="qEnd"></div>
     </div>
-    <p class="hint">Leave the dates blank to include everything in the file. Ask your accountant or check your state's rules if you're not sure which date to use.</p>
+    <p class="hint">Leave the dates blank to include everything in the file. <b>Project</b> adds up every payment on a wedding into one line (fewer rows to review). <b>Payment</b> keeps one line per HoneyBook payment, with its own date. Ask your accountant if you're not sure which date to use.</p>
   </section>
 
   <section>
@@ -98,11 +103,12 @@
 
   <section id="venueSection" class="hidden">
     <h2><span class="step">4</span>Venue addresses</h2>
-    <p class="hint" style="margin-top:0">TaxCloud needs the address where each event was delivered. HoneyBook doesn't include it, so add it below. Upload a saved venue list to fill them in automatically.</p>
+    <p class="hint" style="margin-top:0">TaxCloud needs a <b>ship-to address</b> on every row: street, city, state and 5-digit ZIP, all four. HoneyBook doesn't include it, so type each venue in below (yellow rows are incomplete) or load a saved venue list to fill them in.</p>
     <div class="actions" style="margin:0 0 12px">
       <label class="btn secondary" style="margin:0;color:var(--accent)">Load saved venue list<input type="file" id="venueFile" accept=".csv,text/csv" class="hidden"></label>
       <button class="secondary" id="saveVenues">Save venue list for next time</button>
     </div>
+    <div class="grid" style="max-width:260px;margin-bottom:12px"><div><label for="defState">State to use when a venue has none</label><input type="text" id="defState" maxlength="2" placeholder="CO"></div></div>
     <div id="venueMsg"></div>
     <div class="tablewrap"><table id="venueTable"></table></div>
   </section>
@@ -113,13 +119,8 @@
       <div class="grid" style="margin-top:12px">
         <div><label for="tic">Product code (TIC)</label><input type="text" id="tic"></div>
         <div><label for="itemName">Item description</label><input type="text" id="itemName"></div>
-        <div><label for="internalDomain">Your email domain</label><input type="text" id="internalDomain" placeholder="yourbusiness.com"></div>
       </div>
-      <p class="hint">If you create invoices under your own email, rows where the client is on your domain are named from the project title instead.</p>
-      <h2 style="margin-top:16px">Someone else paid (planner, parent, etc.)</h2>
-      <div id="payerRows"></div><button class="secondary" id="addPayer">+ Add</button>
-      <h2 style="margin-top:16px">Rename a customer ID</h2>
-      <div id="idRows"></div><button class="secondary" id="addId">+ Add</button>
+      <p class="hint">Customer IDs are created automatically from each client's name, so there is nothing to set up.</p>
       <div class="actions"><button class="secondary" id="exportSettings">Export settings</button>
         <label class="btn secondary" style="margin:0;color:var(--accent)">Import settings<input type="file" id="importSettings" accept=".json" class="hidden"></label></div>
     </details>
@@ -144,7 +145,7 @@
 (function () {
   var $ = function (id) { return document.getElementById(id); };
   var STORE = 'hbtc.settings.v1';
-  var state = { records: [], headers: [], venues: [], manual: {}, result: null };
+  var state = { records: [], headers: [], venues: [], manual: {}, result: null, extra: {} };
 
   // ---- settings ----------------------------------------------------------
   function loadSaved() {
@@ -153,18 +154,16 @@
   function save(s) { try { localStorage.setItem(STORE, JSON.stringify(s)); } catch (e) { /* private mode: fine */ } }
 
   function readSettings() {
-    var s = HBTC.defaultSettings();
+    var s = Object.assign(HBTC.defaultSettings(), state.extra);
     s.companyName = $('companyName').value.trim();
     s.shipFrom = { addr1: $('fromAddr1').value.trim(), city: $('fromCity').value.trim(),
       state: $('fromState').value.trim().toUpperCase(), zip5: $('fromZip').value.trim() };
-    s.mode = $('mode').value;
+    s.mode = $('mode').value; s.rowMode = $('rowMode').value;
     s.quarterStart = $('qStart').value; s.quarterEnd = $('qEnd').value;
     s.tic = $('tic').value.trim() || '94001';
     s.itemName = $('itemName').value.trim() || 'Wedding Floral & Decor';
-    s.internalDomain = $('internalDomain').value.trim();
+    s.defaultShipToState = $('defState').value.trim().toUpperCase();
     s.company = $('company').value;
-    s.payerOverrides = readPairs('payerRows', 'match', 'customerId');
-    s.idOverrides = readPairs('idRows', 'from', 'to');
     return s;
   }
 
@@ -173,27 +172,10 @@
     var f = s.shipFrom || {};
     $('companyName').value = s.companyName; $('fromAddr1').value = f.addr1 || ''; $('fromCity').value = f.city || '';
     $('fromState').value = f.state || ''; $('fromZip').value = f.zip5 || '';
-    $('mode').value = s.mode; $('qStart').value = s.quarterStart; $('qEnd').value = s.quarterEnd;
-    $('tic').value = s.tic; $('itemName').value = s.itemName; $('internalDomain').value = s.internalDomain;
-    $('payerRows').textContent = ''; $('idRows').textContent = '';
-    (s.payerOverrides || []).forEach(function (o) { addPair('payerRows', o.match, o.customerId, 'Payer name contains', 'Customer ID'); });
-    (s.idOverrides || []).forEach(function (o) { addPair('idRows', o.from, o.to, 'When ID is', 'Change it to'); });
-  }
-
-  function addPair(containerId, a, b, phA, phB) {
-    var row = document.createElement('div'); row.className = 'row';
-    [[a, phA], [b, phB]].forEach(function (p) {
-      var i = document.createElement('input'); i.type = 'text'; i.value = p[0] || ''; i.placeholder = p[1];
-      i.addEventListener('input', refresh); row.appendChild(i);
-    });
-    var x = document.createElement('button'); x.className = 'secondary'; x.textContent = '×'; x.setAttribute('aria-label', 'Remove');
-    x.addEventListener('click', function () { row.remove(); refresh(); });
-    row.appendChild(x); $(containerId).appendChild(row);
-  }
-  function readPairs(containerId, ka, kb) {
-    return Array.prototype.map.call($(containerId).children, function (row) {
-      var o = {}; o[ka] = row.children[0].value.trim(); o[kb] = row.children[1].value.trim(); return o;
-    }).filter(function (o) { return o[ka] && o[kb]; });
+    $('mode').value = s.mode; $('rowMode').value = s.rowMode; $('qStart').value = s.quarterStart; $('qEnd').value = s.quarterEnd;
+    $('tic').value = s.tic; $('itemName').value = s.itemName; $('defState').value = s.defaultShipToState || '';
+    // Optional rules a settings file may carry; not shown in the UI.
+    state.extra = { payerOverrides: s.payerOverrides || [], idOverrides: s.idOverrides || [], internalDomain: s.internalDomain || '' };
   }
 
   // ---- file handling -----------------------------------------------------
@@ -211,15 +193,15 @@
   function handleHB(file) {
     $('hbName').textContent = file.name;
     readFile(file, function (text) {
-      var parsed = HBTC.csvToObjects(text);
-      var need = ['PROJECT_NAME', 'CLIENT_INFO', 'INVOICE', 'TRANSACTION_DATE', 'NON_TAXABLE_AMOUNT', 'TAXABLE_AMOUNT_1'];
-      var missing = need.filter(function (c) { return parsed.headers.indexOf(c) === -1; });
-      if (missing.length) {
+      var parsed = HBTC.readPayments(text);
+      if (parsed.missing.length) {
         state.records = [];
-        msg('hbMsg', 'err', "This doesn't look like a HoneyBook Payments report. Missing columns: " + missing.join(', ') + '. In HoneyBook go to Reports → Payments and export as CSV.');
+        msg('hbMsg', 'err', "This doesn't look like a HoneyBook Payments report. Couldn't find: " + parsed.missing.join(', ') +
+          ". Use HoneyBook → Reports → Payments → Export CSV, and leave the headers as HoneyBook gives them. Columns found: " +
+          parsed.headers.slice(0, 12).join(', ') + (parsed.headers.length > 12 ? '…' : ''));
         refresh(); return;
       }
-      state.records = parsed.records;
+      state.records = parsed.records; state.manual = {};
       var names = {};
       parsed.records.forEach(function (r) { if (r.COMPANY_NAME) names[r.COMPANY_NAME] = 1; });
       var list = Object.keys(names), sel = $('company'); sel.textContent = '';
@@ -240,8 +222,11 @@
   $('venueFile').addEventListener('change', function (e) {
     var f = e.target.files[0]; if (!f) return;
     readFile(f, function (text) {
-      var p = HBTC.csvToObjects(text);
-      if (p.headers.indexOf('ShipToAddr1') === -1) { msg('venueMsg', 'err', 'That file needs a ShipToAddr1 column plus CustomerID or ProjectName.'); return; }
+      var p = HBTC.readVenues(text);
+      if (p.missing.length) {
+        msg('venueMsg', 'err', "Couldn't find a " + p.missing.join(' or ') + ' column in that file. Columns found: ' + p.headers.join(', '));
+        return;
+      }
       state.venues = p.records; state.manual = {};
       msg('venueMsg', 'ok', 'Loaded ' + p.records.length + ' venues.');
       refresh();
@@ -265,12 +250,14 @@
   function renderVenues() {
     var t = $('venueTable'); t.textContent = '';
     var head = t.insertRow();
-    ['Customer', 'Project'].concat(VENUE_FIELDS.map(function (f) { return f[1]; })).forEach(function (h) {
+    ['Project'].concat(VENUE_FIELDS.map(function (f) { return f[1]; })).forEach(function (h) {
       var th = document.createElement('th'); th.textContent = h; head.appendChild(th);
     });
+    var seen = {};
     state.result.rows.forEach(function (r) {
+      if (seen[r.projectName]) return; seen[r.projectName] = true;
       var tr = t.insertRow(); if (r.missingVenue) tr.className = 'missing';
-      tr.insertCell().textContent = r.customerId; tr.insertCell().textContent = r.projectName;
+      tr.insertCell().textContent = r.projectName;
       VENUE_FIELDS.forEach(function (f) {
         var inp = document.createElement('input'); inp.type = 'text';
         inp.value = r.venue ? r.venue[f[0]] : ''; inp.setAttribute('aria-label', f[1] + ' for ' + r.projectName);
@@ -290,15 +277,15 @@
   function renderResult(s) {
     var sum = HBTC.summarize(state.result.rows), sk = state.result.skipped;
     var st = $('stats'); st.textContent = '';
-    [['Rows', sum.rowCount], ['Total sales (pre-tax)', money(sum.totalPreTax)],
-     ['Tax HoneyBook collected', money(sum.hbTaxCollected)], ['Missing venues', sum.missingVenues]].forEach(function (p) {
+    [['Rows in file', sum.rowCount], ['Total sales (pre-tax)', money(sum.totalPreTax)],
+     ['Tax HoneyBook collected', money(sum.hbTaxCollected)], ['Rows missing a ship-to address', sum.missingVenues]].forEach(function (p) {
       var d = document.createElement('div'); d.className = 'stat';
       var b = document.createElement('b'); b.textContent = p[1]; var sp = document.createElement('span'); sp.textContent = p[0];
       d.appendChild(b); d.appendChild(sp); st.appendChild(d);
     });
     var problems = [];
     if (!s.shipFrom.addr1 || !s.shipFrom.city || !s.shipFrom.state || !s.shipFrom.zip5) problems.push('Add your ship-from address in step 1.');
-    if (sum.missingVenues) problems.push(sum.missingVenues + ' row(s) have no venue address (highlighted in step 4). TaxCloud will reject rows without one.');
+    if (sum.missingVenues) problems.push(sum.missingVenues + ' row(s) are missing part of the ship-to address (street, city, state and ZIP are all required). They are highlighted in step 4. TaxCloud will reject them.');
     if (sk.outOfRange) problems.push(sk.outOfRange + ' payment(s) fell outside your reporting period and were left out.');
     if (!sum.rowCount) problems.push('No payments matched your settings. Check the dates and report-by choice.');
     var p = $('problems'); p.textContent = '';
@@ -336,8 +323,6 @@
     var f = e.target.files[0]; if (!f) return;
     readFile(f, function (t) { try { applySettings(JSON.parse(t)); refresh(); } catch (err) { msg('hbMsg', 'err', 'Could not read that settings file.'); } });
   });
-  $('addPayer').addEventListener('click', function () { addPair('payerRows', '', '', 'Payer name contains', 'Customer ID'); });
-  $('addId').addEventListener('click', function () { addPair('idRows', '', '', 'When ID is', 'Change it to'); });
 
   Array.prototype.forEach.call(document.querySelectorAll('input[type=text],input[type=date],select'), function (el) {
     el.addEventListener('input', refresh); el.addEventListener('change', refresh);
