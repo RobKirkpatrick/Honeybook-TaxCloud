@@ -1,0 +1,12 @@
+{
+  "companyName": "Example Florals LLC",
+  "shipFrom": { "addr1": "1 Example Way", "city": "Denver", "state": "CO", "zip5": "80202" },
+  "tic": "94001",
+  "itemName": "Wedding Floral & Decor",
+  "mode": "PAYMENT_DATE",
+  "quarterStart": "2026-07-01",
+  "quarterEnd": "2026-09-30",
+  "internalDomain": "example.com",
+  "payerOverrides": [{ "match": "Pat Planner", "customerId": "JordanLee" }],
+  "idOverrides": []
+}

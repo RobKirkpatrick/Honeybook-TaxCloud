@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HoneyBook to TaxCloud Converter</title>
+<style>
+  :root {
+    --bg: #faf8f5; --card: #fff; --ink: #2b2623; --muted: #6f6761; --line: #e5dfd7;
+    --accent: #8a4b5f; --accent-ink: #fff; --warn-bg: #fff4d6; --warn-ink: #7a5600; --ok: #2f7a4d; --err: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1d1a18; --card: #272321; --ink: #f1ece6; --muted: #aaa19a; --line: #3b3531;
+      --accent: #d98ba3; --accent-ink: #1d1a18; --warn-bg: #3c3115; --warn-ink: #f3d98a; --ok: #6fcf97; --err: #ff8a80; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  h2 { font-size: 1.1rem; margin: 0 0 12px; }
+  .lede { color: var(--muted); margin: 0 0 24px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .step { display: inline-block; background: var(--accent); color: var(--accent-ink); border-radius: 50%; width: 1.7em; height: 1.7em; text-align: center; line-height: 1.7em; margin-right: 8px; font-size: .9rem; }
+  label { display: block; font-size: .9rem; color: var(--muted); margin-bottom: 4px; }
+  input[type=text], input[type=date], select { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+  .hint { font-size: .85rem; color: var(--muted); margin: 6px 0 0; }
+  button, .btn { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px; padding: 10px 16px; font: inherit; font-weight: 600; cursor: pointer; }
+  button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .drop { border: 2px dashed var(--line); border-radius: 12px; padding: 28px; text-align: center; color: var(--muted); }
+  .drop.over { border-color: var(--accent); background: var(--bg); }
+  .drop input { display: none; }
+  .msg { padding: 10px 12px; border-radius: 8px; margin-top: 12px; font-size: .92rem; }
+  .msg.warn { background: var(--warn-bg); color: var(--warn-ink); }
+  .msg.err { color: var(--err); border: 1px solid var(--err); }
+  .msg.ok { color: var(--ok); border: 1px solid var(--ok); }
+  .stats { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 12px; }
+  .stat { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .stat b { display: block; font-size: 1.3rem; }
+  .stat span { font-size: .8rem; color: var(--muted); }
+  .tablewrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td input { min-width: 110px; padding: 5px 7px; font-size: .85rem; }
+  tr.missing td { background: var(--warn-bg); }
+  details { margin-top: 12px; } summary { cursor: pointer; font-weight: 600; }
+  .row { display: flex; gap: 8px; margin-bottom: 8px; } .row input { flex: 1; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .hidden { display: none; }
+  footer { color: var(--muted); font-size: .85rem; margin-top: 24px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>HoneyBook → TaxCloud Converter</h1>
+  <p class="lede">Turn a HoneyBook Payments report into a file TaxCloud can import. Everything happens in your browser. Your client data is never uploaded anywhere.</p>
+
+  <section>
+    <h2><span class="step">1</span>Your business</h2>
+    <div class="grid">
+      <div><label for="companyName">Business name</label><input type="text" id="companyName" autocomplete="organization"></div>
+      <div><label for="fromAddr1">Ship-from street address</label><input type="text" id="fromAddr1" autocomplete="address-line1"></div>
+      <div><label for="fromCity">City</label><input type="text" id="fromCity"></div>
+      <div><label for="fromState">State</label><input type="text" id="fromState" maxlength="2" placeholder="CO"></div>
+      <div><label for="fromZip">ZIP</label><input type="text" id="fromZip" maxlength="10"></div>
+    </div>
+    <p class="hint">This is where your products or services ship from, normally your shop or office. It's saved in this browser only, so you only enter it once.</p>
+  </section>
+
+  <section>
+    <h2><span class="step">2</span>Reporting period</h2>
+    <div class="grid">
+      <div><label for="mode">Report sales by</label>
+        <select id="mode">
+          <option value="PAYMENT_DATE">Date payment was received</option>
+          <option value="EVENT_DATE">Event / delivery date</option>
+        </select></div>
+      <div><label for="qStart">Period start</label><input type="date" id="qStart"></div>
+      <div><label for="qEnd">Period end</label><input type="date" id="qEnd"></div>
+    </div>
+    <p class="hint">Leave the dates blank to include everything in the file. Ask your accountant or check your state's rules if you're not sure which date to use.</p>
+  </section>
+
+  <section>
+    <h2><span class="step">3</span>HoneyBook Payments report</h2>
+    <label class="drop" id="drop">
+      <input type="file" id="hbFile" accept=".csv,text/csv">
+      <div><b>Drop your HoneyBook CSV here</b><br>or click to choose a file</div>
+      <div id="hbName" class="hint"></div>
+    </label>
+    <div id="companyPick" class="hidden" style="margin-top:12px">
+      <label for="company">This file has more than one business. Include:</label>
+      <select id="company"></select>
+    </div>
+    <div id="hbMsg"></div>
+  </section>
+
+  <section id="venueSection" class="hidden">
+    <h2><span class="step">4</span>Venue addresses</h2>
+    <p class="hint" style="margin-top:0">TaxCloud needs the address where each event was delivered. HoneyBook doesn't include it, so add it below. Upload a saved venue list to fill them in automatically.</p>
+    <div class="actions" style="margin:0 0 12px">
+      <label class="btn secondary" style="margin:0;color:var(--accent)">Load saved venue list<input type="file" id="venueFile" accept=".csv,text/csv" class="hidden"></label>
+      <button class="secondary" id="saveVenues">Save venue list for next time</button>
+    </div>
+    <div id="venueMsg"></div>
+    <div class="tablewrap"><table id="venueTable"></table></div>
+  </section>
+
+  <section id="advanced" class="hidden">
+    <details>
+      <summary>Advanced options</summary>
+      <div class="grid" style="margin-top:12px">
+        <div><label for="tic">Product code (TIC)</label><input type="text" id="tic"></div>
+        <div><label for="itemName">Item description</label><input type="text" id="itemName"></div>
+        <div><label for="internalDomain">Your email domain</label><input type="text" id="internalDomain" placeholder="yourbusiness.com"></div>
+      </div>
+      <p class="hint">If you create invoices under your own email, rows where the client is on your domain are named from the project title instead.</p>
+      <h2 style="margin-top:16px">Someone else paid (planner, parent, etc.)</h2>
+      <div id="payerRows"></div><button class="secondary" id="addPayer">+ Add</button>
+      <h2 style="margin-top:16px">Rename a customer ID</h2>
+      <div id="idRows"></div><button class="secondary" id="addId">+ Add</button>
+      <div class="actions"><button class="secondary" id="exportSettings">Export settings</button>
+        <label class="btn secondary" style="margin:0;color:var(--accent)">Import settings<input type="file" id="importSettings" accept=".json" class="hidden"></label></div>
+    </details>
+  </section>
+
+  <section id="resultSection" class="hidden">
+    <h2><span class="step">5</span>Download</h2>
+    <div class="stats" id="stats"></div>
+    <div id="problems"></div>
+    <div class="actions">
+      <button id="dlUpload">Download TaxCloud file</button>
+      <button class="secondary" id="dlReview">Download review copy (with HoneyBook tax)</button>
+    </div>
+    <p class="hint">Upload the first file to TaxCloud. The review copy has three extra columns for your own comparison. TaxCloud will reject it, so don't upload that one.</p>
+  </section>
+
+  <footer>Open source: formats data only, doesn't give tax advice. Check results against your TaxCloud account before filing.</footer>
+</main>
+
+<script src="src/convert.js"></script>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var STORE = 'hbtc.settings.v1';
+  var state = { records: [], headers: [], venues: [], manual: {}, result: null };
+
+  // ---- settings ----------------------------------------------------------
+  function loadSaved() {
+    try { return JSON.parse(localStorage.getItem(STORE) || '{}'); } catch (e) { return {}; }
+  }
+  function save(s) { try { localStorage.setItem(STORE, JSON.stringify(s)); } catch (e) { /* private mode: fine */ } }
+
+  function readSettings() {
+    var s = HBTC.defaultSettings();
+    s.companyName = $('companyName').value.trim();
+    s.shipFrom = { addr1: $('fromAddr1').value.trim(), city: $('fromCity').value.trim(),
+      state: $('fromState').value.trim().toUpperCase(), zip5: $('fromZip').value.trim() };
+    s.mode = $('mode').value;
+    s.quarterStart = $('qStart').value; s.quarterEnd = $('qEnd').value;
+    s.tic = $('tic').value.trim() || '94001';
+    s.itemName = $('itemName').value.trim() || 'Wedding Floral & Decor';
+    s.internalDomain = $('internalDomain').value.trim();
+    s.company = $('company').value;
+    s.payerOverrides = readPairs('payerRows', 'match', 'customerId');
+    s.idOverrides = readPairs('idRows', 'from', 'to');
+    return s;
+  }
+
+  function applySettings(s) {
+    s = Object.assign(HBTC.defaultSettings(), s || {});
+    var f = s.shipFrom || {};
+    $('companyName').value = s.companyName; $('fromAddr1').value = f.addr1 || ''; $('fromCity').value = f.city || '';
+    $('fromState').value = f.state || ''; $('fromZip').value = f.zip5 || '';
+    $('mode').value = s.mode; $('qStart').value = s.quarterStart; $('qEnd').value = s.quarterEnd;
+    $('tic').value = s.tic; $('itemName').value = s.itemName; $('internalDomain').value = s.internalDomain;
+    $('payerRows').textContent = ''; $('idRows').textContent = '';
+    (s.payerOverrides || []).forEach(function (o) { addPair('payerRows', o.match, o.customerId, 'Payer name contains', 'Customer ID'); });
+    (s.idOverrides || []).forEach(function (o) { addPair('idRows', o.from, o.to, 'When ID is', 'Change it to'); });
+  }
+
+  function addPair(containerId, a, b, phA, phB) {
+    var row = document.createElement('div'); row.className = 'row';
+    [[a, phA], [b, phB]].forEach(function (p) {
+      var i = document.createElement('input'); i.type = 'text'; i.value = p[0] || ''; i.placeholder = p[1];
+      i.addEventListener('input', refresh); row.appendChild(i);
+    });
+    var x = document.createElement('button'); x.className = 'secondary'; x.textContent = '×'; x.setAttribute('aria-label', 'Remove');
+    x.addEventListener('click', function () { row.remove(); refresh(); });
+    row.appendChild(x); $(containerId).appendChild(row);
+  }
+  function readPairs(containerId, ka, kb) {
+    return Array.prototype.map.call($(containerId).children, function (row) {
+      var o = {}; o[ka] = row.children[0].value.trim(); o[kb] = row.children[1].value.trim(); return o;
+    }).filter(function (o) { return o[ka] && o[kb]; });
+  }
+
+  // ---- file handling -----------------------------------------------------
+  function readFile(file, cb) {
+    var r = new FileReader();
+    r.onload = function () { cb(String(r.result)); };
+    r.readAsText(file);
+  }
+  function msg(id, cls, text) {
+    var el = $(id); el.textContent = '';
+    if (!text) return;
+    var d = document.createElement('div'); d.className = 'msg ' + cls; d.textContent = text; el.appendChild(d);
+  }
+
+  function handleHB(file) {
+    $('hbName').textContent = file.name;
+    readFile(file, function (text) {
+      var parsed = HBTC.csvToObjects(text);
+      var need = ['PROJECT_NAME', 'CLIENT_INFO', 'INVOICE', 'TRANSACTION_DATE', 'NON_TAXABLE_AMOUNT', 'TAXABLE_AMOUNT_1'];
+      var missing = need.filter(function (c) { return parsed.headers.indexOf(c) === -1; });
+      if (missing.length) {
+        state.records = [];
+        msg('hbMsg', 'err', "This doesn't look like a HoneyBook Payments report. Missing columns: " + missing.join(', ') + '. In HoneyBook go to Reports → Payments and export as CSV.');
+        refresh(); return;
+      }
+      state.records = parsed.records;
+      var names = {};
+      parsed.records.forEach(function (r) { if (r.COMPANY_NAME) names[r.COMPANY_NAME] = 1; });
+      var list = Object.keys(names), sel = $('company'); sel.textContent = '';
+      list.forEach(function (n) { var o = document.createElement('option'); o.value = n; o.textContent = n; sel.appendChild(o); });
+      $('companyPick').classList.toggle('hidden', list.length < 2);
+      if (list.length < 2) sel.value = '';
+      msg('hbMsg', 'ok', 'Loaded ' + parsed.records.filter(function (r) { return (r.INVOICE || '').trim(); }).length + ' payments.');
+      refresh();
+    });
+  }
+
+  $('hbFile').addEventListener('change', function (e) { if (e.target.files[0]) handleHB(e.target.files[0]); });
+  var drop = $('drop');
+  ['dragenter', 'dragover'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); }); });
+  ['dragleave', 'drop'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); }); });
+  drop.addEventListener('drop', function (e) { if (e.dataTransfer.files[0]) handleHB(e.dataTransfer.files[0]); });
+
+  $('venueFile').addEventListener('change', function (e) {
+    var f = e.target.files[0]; if (!f) return;
+    readFile(f, function (text) {
+      var p = HBTC.csvToObjects(text);
+      if (p.headers.indexOf('ShipToAddr1') === -1) { msg('venueMsg', 'err', 'That file needs a ShipToAddr1 column plus CustomerID or ProjectName.'); return; }
+      state.venues = p.records; state.manual = {};
+      msg('venueMsg', 'ok', 'Loaded ' + p.records.length + ' venues.');
+      refresh();
+    });
+  });
+
+  // ---- render ------------------------------------------------------------
+  var VENUE_FIELDS = [['addr1', 'Street'], ['addr2', 'Line 2'], ['city', 'City'], ['state', 'State'], ['zip5', 'ZIP']];
+
+  function refresh() {
+    var s = readSettings();
+    save(Object.assign({}, s, { company: '' }));
+    var has = state.records.length > 0;
+    ['venueSection', 'advanced', 'resultSection'].forEach(function (id) { $(id).classList.toggle('hidden', !has); });
+    if (!has) { state.result = null; return; }
+
+    state.result = HBTC.convert(state.records, s, state.venues, state.manual);
+    renderVenues(); renderResult(s);
+  }
+
+  function renderVenues() {
+    var t = $('venueTable'); t.textContent = '';
+    var head = t.insertRow();
+    ['Customer', 'Project'].concat(VENUE_FIELDS.map(function (f) { return f[1]; })).forEach(function (h) {
+      var th = document.createElement('th'); th.textContent = h; head.appendChild(th);
+    });
+    state.result.rows.forEach(function (r) {
+      var tr = t.insertRow(); if (r.missingVenue) tr.className = 'missing';
+      tr.insertCell().textContent = r.customerId; tr.insertCell().textContent = r.projectName;
+      VENUE_FIELDS.forEach(function (f) {
+        var inp = document.createElement('input'); inp.type = 'text';
+        inp.value = r.venue ? r.venue[f[0]] : ''; inp.setAttribute('aria-label', f[1] + ' for ' + r.projectName);
+        inp.addEventListener('change', function () {
+          var cur = Object.assign({ addr1: '', addr2: '', city: '', state: '', zip5: '' }, state.manual[r.projectName] || r.venue || {});
+          cur[f[0]] = inp.value.trim();
+          state.manual[r.projectName] = cur;
+          refresh();
+        });
+        tr.insertCell().appendChild(inp);
+      });
+    });
+  }
+
+  function money(str) { return '$' + Number(str).toLocaleString('en-US', { minimumFractionDigits: 2 }); }
+
+  function renderResult(s) {
+    var sum = HBTC.summarize(state.result.rows), sk = state.result.skipped;
+    var st = $('stats'); st.textContent = '';
+    [['Rows', sum.rowCount], ['Total sales (pre-tax)', money(sum.totalPreTax)],
+     ['Tax HoneyBook collected', money(sum.hbTaxCollected)], ['Missing venues', sum.missingVenues]].forEach(function (p) {
+      var d = document.createElement('div'); d.className = 'stat';
+      var b = document.createElement('b'); b.textContent = p[1]; var sp = document.createElement('span'); sp.textContent = p[0];
+      d.appendChild(b); d.appendChild(sp); st.appendChild(d);
+    });
+    var problems = [];
+    if (!s.shipFrom.addr1 || !s.shipFrom.city || !s.shipFrom.state || !s.shipFrom.zip5) problems.push('Add your ship-from address in step 1.');
+    if (sum.missingVenues) problems.push(sum.missingVenues + ' row(s) have no venue address (highlighted in step 4). TaxCloud will reject rows without one.');
+    if (sk.outOfRange) problems.push(sk.outOfRange + ' payment(s) fell outside your reporting period and were left out.');
+    if (!sum.rowCount) problems.push('No payments matched your settings. Check the dates and report-by choice.');
+    var p = $('problems'); p.textContent = '';
+    problems.forEach(function (t) { var d = document.createElement('div'); d.className = 'msg warn'; d.textContent = t; p.appendChild(d); });
+    var blocked = !sum.rowCount;
+    $('dlUpload').disabled = blocked; $('dlReview').disabled = blocked;
+  }
+
+  // ---- downloads ---------------------------------------------------------
+  function download(name, text) {
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
+    a.download = name; document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+  }
+  function stamp() { return new Date().toISOString().slice(0, 10); }
+
+  $('dlUpload').addEventListener('click', function () {
+    var files = HBTC.buildUploadFiles(state.result.rows, readSettings(), false);
+    files.forEach(function (f, i) {
+      setTimeout(function () { download('taxcloud-upload-' + stamp() + (files.length > 1 ? '-part' + (i + 1) : '') + '.csv', f); }, i * 400);
+    });
+  });
+  $('dlReview').addEventListener('click', function () {
+    var files = HBTC.buildUploadFiles(state.result.rows, readSettings(), true);
+    files.forEach(function (f, i) {
+      setTimeout(function () { download('REVIEW-ONLY-do-not-upload-' + stamp() + (files.length > 1 ? '-part' + (i + 1) : '') + '.csv', f); }, i * 400);
+    });
+  });
+  $('saveVenues').addEventListener('click', function () { download('venues.csv', HBTC.venuesToCSV(state.result.rows)); });
+  $('exportSettings').addEventListener('click', function () {
+    download('hb-taxcloud-settings.json', JSON.stringify(Object.assign(readSettings(), { company: '' }), null, 2));
+  });
+  $('importSettings').addEventListener('change', function (e) {
+    var f = e.target.files[0]; if (!f) return;
+    readFile(f, function (t) { try { applySettings(JSON.parse(t)); refresh(); } catch (err) { msg('hbMsg', 'err', 'Could not read that settings file.'); } });
+  });
+  $('addPayer').addEventListener('click', function () { addPair('payerRows', '', '', 'Payer name contains', 'Customer ID'); });
+  $('addId').addEventListener('click', function () { addPair('idRows', '', '', 'When ID is', 'Change it to'); });
+
+  Array.prototype.forEach.call(document.querySelectorAll('input[type=text],input[type=date],select'), function (el) {
+    el.addEventListener('input', refresh); el.addEventListener('change', refresh);
+  });
+
+  applySettings(loadSaved());
+})();
+</script>
+</body>
+</html>

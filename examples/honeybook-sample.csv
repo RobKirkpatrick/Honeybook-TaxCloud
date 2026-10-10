@@ -1,0 +1,6 @@
+COMPANY_NAME,PROJECT_NAME,PROJECT_DATE,VENDOR_INFO,CLIENT_INFO,INVOICE,PAYMENT_STATUS,PAYMENT_NAME,TRANSACTION_DATE,NON_TAXABLE_AMOUNT,TAXABLE_AMOUNT_1,TAX_1,TAX_RATE_1,TOTAL_AMOUNT
+Example Florals LLC,Taylor Reed 08/15/26 Wedding,"Aug 15, 2026",Example Florals (hello@example.com),Taylor Reed (taylor@example.org),#000101-001,Paid,1 of 2 payments,"Jul 02, 2026",200.00,800.00,65.60,8.2%,1065.60
+Example Florals LLC,Taylor Reed 08/15/26 Wedding,"Aug 15, 2026",Example Florals (hello@example.com),Taylor Reed (taylor@example.org),#000101-002,Paid,2 of 2 payments,"Aug 01, 2026",200.00,800.00,65.60,8.2%,1065.60
+Example Florals LLC,Jordan Lee 09/12/26 Wedding,"Sep 12, 2026",Example Florals (hello@example.com),Pat Planner (pat@example.net),#000102-001,Paid,1 of 1 payment,"Sep 01, 2026",150.00,1350.00,110.70,8.2%,1610.70
+Example Florals LLC,Jordan Lee 09/12/26 Wedding,"Sep 12, 2026",Example Florals (hello@example.com),Pat Planner (pat@example.net),#000102-001,Partial Refund,1 of 1 payment,"Sep 20, 2026",-20.00,-80.00,-6.56,8.2%,-106.56
+,,,,,,,,,570.00,2930.00,236.46,,3436.46
