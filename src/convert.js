@@ -117,9 +117,11 @@
 
   var VENUE_ALIASES = {
     ProjectName: ['projectname', 'project', 'name', 'event', 'wedding', 'projecttitle'],
+    VenueName: ['venue', 'venuename', 'location', 'locationname'],
     CustomerID: ['customerid', 'customer'],
     ShipToAddr1: ['shiptoaddr1', 'addr1', 'address', 'address1', 'street', 'streetaddress', 'venueaddress', 'shiptoaddress', 'shiptostreet'],
     ShipToAddr2: ['shiptoaddr2', 'addr2', 'address2', 'suite', 'unit'],
+    ShipToAddr3: ['shiptoaddr3', 'addr3', 'address3'],
     ShipToCity: ['shiptocity', 'city', 'venuecity'],
     ShipToState: ['shiptostate', 'state', 'venuestate'],
     ShipToZip5: ['shiptozip5', 'shiptozip', 'zip', 'zipcode', 'zip5', 'postalcode', 'postcode']
@@ -137,9 +139,14 @@
       p.headers.forEach(function (h, i) { if (map[i] && o[map[i]] === undefined) o[map[i]] = rec[h]; });
       return o;
     });
+    // Fold a third address line into line 2.
+    records.forEach(function (o) {
+      if (o.ShipToAddr3) o.ShipToAddr2 = [o.ShipToAddr2, o.ShipToAddr3].filter(Boolean).join(' ');
+      delete o.ShipToAddr3;
+    });
     var missing = [];
     if (map.indexOf('ShipToAddr1') === -1) missing.push('street address');
-    if (map.indexOf('ProjectName') === -1 && map.indexOf('CustomerID') === -1) missing.push('project name');
+    if (['ProjectName', 'CustomerID', 'VenueName'].every(function (k) { return map.indexOf(k) === -1; })) missing.push('project or venue name');
     return { records: records, headers: p.headers, missing: missing };
   }
 

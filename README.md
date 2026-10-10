@@ -43,11 +43,21 @@ There's nothing to set up. HoneyBook has no customer ID, so the converter makes 
 
 ## Venue list format
 
-A CSV with one row per project. Headers can be named loosely (`Project Name`, `Address`/`Street`, `City`, `State`, `Zip`); the exact TaxCloud names also work. Match is on the **project name exactly as HoneyBook shows it**:
+Either shape works, and headers can be named loosely.
+
+**A list of venues** (one row per venue, e.g. a master "Venue Addresses" sheet):
+
+`venue, address 1, address 2, address 3, city, state, postal code`
+
+Load it once. For each project, start typing the venue and pick it from the dropdown, and the address fills in. If a venue's name appears in the project name, it's picked for you. Your choices are remembered in this browser, so next quarter only new projects need attention. *Forget remembered venues* clears them.
+
+**A list of projects** (one row per project), matched on the project name exactly as HoneyBook shows it:
 
 `ProjectName,ShipToAddr1,ShipToAddr2,ShipToCity,ShipToState,ShipToZip5`
 
-The *Save venue list* button writes this file for you.
+The *Save venue list* button writes this file, if you want to share or back up your matches.
+
+Venues with no street address (for example "Private Residence" or just a town) stay yellow until you type the address, because TaxCloud needs a full one.
 
 See [examples/](examples/) for a sample HoneyBook file, venue list and settings (all fictional).
 

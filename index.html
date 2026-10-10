@@ -26,7 +26,7 @@
   .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
   .hint { font-size: .85rem; color: var(--muted); margin: 6px 0 0; }
   button, .btn { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px; padding: 10px 16px; font: inherit; font-weight: 600; cursor: pointer; }
-  button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  button.secondary, .btn.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
   button:disabled { opacity: .5; cursor: not-allowed; }
   .drop { border: 2px dashed var(--line); border-radius: 12px; padding: 28px; text-align: center; color: var(--muted); }
   .drop.over { border-color: var(--accent); background: var(--bg); }
@@ -47,6 +47,7 @@
   details { margin-top: 12px; } summary { cursor: pointer; font-weight: 600; }
   .row { display: flex; gap: 8px; margin-bottom: 8px; } .row input { flex: 1; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .btn { display: inline-block; }
   .hidden { display: none; }
   footer { color: var(--muted); font-size: .85rem; margin-top: 24px; }
 </style>
@@ -103,10 +104,12 @@
 
   <section id="venueSection" class="hidden">
     <h2><span class="step">4</span>Venue addresses</h2>
-    <p class="hint" style="margin-top:0">TaxCloud needs a <b>ship-to address</b> on every row: street, city, state and 5-digit ZIP, all four. HoneyBook doesn't include it, so type each venue in below (yellow rows are incomplete) or load a saved venue list to fill them in.</p>
+    <p class="hint" style="margin-top:0">TaxCloud needs a <b>ship-to address</b> on every row: street, city, state and 5-digit ZIP, all four. HoneyBook doesn't include it, so type each venue in below (yellow rows are incomplete) or load your venue list. A list with one row per <i>venue</i> works: pick the venue for each project from the dropdown and the address fills in. Your choices are remembered in this browser.</p>
     <div class="actions" style="margin:0 0 12px">
-      <label class="btn secondary" style="margin:0;color:var(--accent)">Load saved venue list<input type="file" id="venueFile" accept=".csv,text/csv" class="hidden"></label>
+      <label class="btn secondary" style="margin:0">Load saved venue list<input type="file" id="venueFile" accept=".csv,text/csv" class="hidden"></label>
       <button class="secondary" id="saveVenues">Save venue list for next time</button>
+      <button class="secondary" id="clearVenues">Forget remembered venues</button>
+      <datalist id="venueNames"></datalist>
     </div>
     <div class="grid" style="max-width:260px;margin-bottom:12px"><div><label for="defState">State to use when a venue has none</label><input type="text" id="defState" maxlength="2" placeholder="CO"></div></div>
     <div id="venueMsg"></div>
@@ -122,7 +125,7 @@
       </div>
       <p class="hint">Customer IDs are created automatically from each client's name, so there is nothing to set up.</p>
       <div class="actions"><button class="secondary" id="exportSettings">Export settings</button>
-        <label class="btn secondary" style="margin:0;color:var(--accent)">Import settings<input type="file" id="importSettings" accept=".json" class="hidden"></label></div>
+        <label class="btn secondary" style="margin:0">Import settings<input type="file" id="importSettings" accept=".json" class="hidden"></label></div>
     </details>
   </section>
 
@@ -145,7 +148,17 @@
 (function () {
   var $ = function (id) { return document.getElementById(id); };
   var STORE = 'hbtc.settings.v1';
-  var state = { records: [], headers: [], venues: [], manual: {}, result: null, extra: {} };
+  var state = { records: [], headers: [], venues: [], manual: {}, result: null, extra: {}, catalog: [] };
+  var VSTORE = 'hbtc.venues.v1';
+  function persistVenues() { try { localStorage.setItem(VSTORE, JSON.stringify({ catalog: state.catalog, manual: state.manual })); } catch (e) { /* ok */ } }
+  function restoreVenues() { try { var v = JSON.parse(localStorage.getItem(VSTORE) || '{}'); state.catalog = v.catalog || []; state.manual = v.manual || {}; } catch (e) { /* ok */ } }
+  function toAddr(rec) { return { name: rec.VenueName || '', addr1: (rec.ShipToAddr1 || '').trim(), addr2: (rec.ShipToAddr2 || '').trim(), city: (rec.ShipToCity || '').trim(), state: (rec.ShipToState || '').trim().toUpperCase(), zip5: (rec.ShipToZip5 || '').trim().slice(0, 5) }; }
+  function findVenue(name) { var n = (name || '').trim().toLowerCase(); return state.catalog.filter(function (v) { return v.VenueName.trim().toLowerCase() === n; })[0]; }
+  function suggestVenue(project) {
+    var p = project.toLowerCase(), best = null;
+    state.catalog.forEach(function (v) { var n = v.VenueName.trim().toLowerCase(); if (n.length >= 4 && p.indexOf(n) !== -1 && (!best || n.length > best.VenueName.length)) best = v; });
+    return best;
+  }
 
   // ---- settings ----------------------------------------------------------
   function loadSaved() {
@@ -201,7 +214,7 @@
           parsed.headers.slice(0, 12).join(', ') + (parsed.headers.length > 12 ? '…' : ''));
         refresh(); return;
       }
-      state.records = parsed.records; state.manual = {};
+      state.records = parsed.records;
       var names = {};
       parsed.records.forEach(function (r) { if (r.COMPANY_NAME) names[r.COMPANY_NAME] = 1; });
       var list = Object.keys(names), sel = $('company'); sel.textContent = '';
@@ -227,8 +240,12 @@
         msg('venueMsg', 'err', "Couldn't find a " + p.missing.join(' or ') + ' column in that file. Columns found: ' + p.headers.join(', '));
         return;
       }
-      state.venues = p.records; state.manual = {};
-      msg('venueMsg', 'ok', 'Loaded ' + p.records.length + ' venues.');
+      var named = p.records.filter(function (r) { return r.VenueName && r.VenueName.trim(); });
+      var keyed = p.records.filter(function (r) { return (r.ProjectName || '').trim() || (r.CustomerID || '').trim(); });
+      if (named.length) { state.catalog = named; }
+      if (keyed.length) { state.venues = keyed; state.manual = {}; }
+      persistVenues();
+      msg('venueMsg', 'ok', named.length ? 'Loaded ' + named.length + ' venues. Pick one for each project below.' : 'Loaded ' + keyed.length + ' project addresses.');
       refresh();
     });
   });
@@ -244,13 +261,22 @@
     if (!has) { state.result = null; return; }
 
     state.result = HBTC.convert(state.records, s, state.venues, state.manual);
+    var suggested = false;
+    state.result.rows.forEach(function (r) {
+      if (!r.missingVenue || state.manual[r.projectName]) return;
+      var hit = suggestVenue(r.projectName);
+      if (hit) { state.manual[r.projectName] = toAddr(hit); suggested = true; }
+    });
+    if (suggested) { persistVenues(); state.result = HBTC.convert(state.records, s, state.venues, state.manual); }
     renderVenues(); renderResult(s);
   }
 
   function renderVenues() {
+    var dl = $('venueNames'); dl.textContent = '';
+    state.catalog.forEach(function (v) { var o = document.createElement('option'); o.value = v.VenueName; dl.appendChild(o); });
     var t = $('venueTable'); t.textContent = '';
     var head = t.insertRow();
-    ['Project'].concat(VENUE_FIELDS.map(function (f) { return f[1]; })).forEach(function (h) {
+    ['Project', 'Venue'].concat(VENUE_FIELDS.map(function (f) { return f[1]; })).forEach(function (h) {
       var th = document.createElement('th'); th.textContent = h; head.appendChild(th);
     });
     var seen = {};
@@ -258,6 +284,17 @@
       if (seen[r.projectName]) return; seen[r.projectName] = true;
       var tr = t.insertRow(); if (r.missingVenue) tr.className = 'missing';
       tr.insertCell().textContent = r.projectName;
+      var vin = document.createElement('input'); vin.type = 'text'; vin.setAttribute('list', 'venueNames');
+      vin.placeholder = state.catalog.length ? 'Choose venue…' : 'Venue name (optional)';
+      vin.value = (r.venue && r.venue.name) || ''; vin.setAttribute('aria-label', 'Venue for ' + r.projectName);
+      vin.addEventListener('change', function () {
+        var hit = findVenue(vin.value);
+        if (hit) state.manual[r.projectName] = toAddr(hit);
+        else if (!vin.value.trim()) delete state.manual[r.projectName];
+        else state.manual[r.projectName] = Object.assign({ addr1: '', addr2: '', city: '', state: '', zip5: '' }, state.manual[r.projectName] || r.venue || {}, { name: vin.value.trim() });
+        persistVenues(); refresh();
+      });
+      tr.insertCell().appendChild(vin);
       VENUE_FIELDS.forEach(function (f) {
         var inp = document.createElement('input'); inp.type = 'text';
         inp.value = r.venue ? r.venue[f[0]] : ''; inp.setAttribute('aria-label', f[1] + ' for ' + r.projectName);
@@ -265,7 +302,7 @@
           var cur = Object.assign({ addr1: '', addr2: '', city: '', state: '', zip5: '' }, state.manual[r.projectName] || r.venue || {});
           cur[f[0]] = inp.value.trim();
           state.manual[r.projectName] = cur;
-          refresh();
+          persistVenues(); refresh();
         });
         tr.insertCell().appendChild(inp);
       });
@@ -315,6 +352,11 @@
       setTimeout(function () { download('REVIEW-ONLY-do-not-upload-' + stamp() + (files.length > 1 ? '-part' + (i + 1) : '') + '.csv', f); }, i * 400);
     });
   });
+  $('clearVenues').addEventListener('click', function () {
+    state.catalog = []; state.manual = {}; state.venues = [];
+    try { localStorage.removeItem(VSTORE); } catch (e) { /* ok */ }
+    msg('venueMsg', 'ok', 'Cleared remembered venues.'); refresh();
+  });
   $('saveVenues').addEventListener('click', function () { download('venues.csv', HBTC.venuesToCSV(state.result.rows)); });
   $('exportSettings').addEventListener('click', function () {
     download('hb-taxcloud-settings.json', JSON.stringify(Object.assign(readSettings(), { company: '' }), null, 2));
@@ -328,6 +370,7 @@
     el.addEventListener('input', refresh); el.addEventListener('change', refresh);
   });
 
+  restoreVenues();
   applySettings(loadSaved());
 })();
 </script>

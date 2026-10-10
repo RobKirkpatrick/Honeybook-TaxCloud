@@ -171,3 +171,12 @@ test('customer ID is just the client name joined, with no setup', () => {
   const recs = csv(['Co,P,"Aug 01, 2026",v,"Mary-Ann O\'Neil (m@x.com)",#1-001,Paid,x,"Jul 01, 2026",0,100,0,0%,100']);
   assert.strictEqual(H.convert(recs, base).rows[0].customerId, 'MaryAnnONeil');
 });
+
+test('venue catalog file (venue, address 1-3, postal code) is recognised', () => {
+  const v = H.readVenues('venue,address 1,address 2,address 3,city,state,postal code\n"The Loft, Inc.","2506 W Colorado Ave","Suite C",,Colorado Springs,CO,80904\nGrand Lake,,,,Grand Lake,CO,80447\n');
+  assert.deepStrictEqual(v.missing, []);
+  assert.strictEqual(v.records[0].VenueName, 'The Loft, Inc.');
+  assert.strictEqual(v.records[0].ShipToAddr2, 'Suite C');
+  assert.strictEqual(v.records[0].ShipToZip5, '80904');
+  assert.strictEqual(H.venueComplete({ addr1: '', city: 'Grand Lake', state: 'CO', zip5: '80447' }), false);
+});
